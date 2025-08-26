@@ -34,6 +34,13 @@ import AudioRecorder from './AudioRecorder';
 
 const DRAWER_WIDTH = 280;
 
+const AGENTS = [
+  { key: 'chat', label: 'Chat', color: 'primary' },
+  { key: 'search', label: 'Web Search', color: 'info' },
+  { key: 'calculate', label: 'Calculator', color: 'warning' },
+  { key: 'wikipedia', label: 'Wikipedia', color: 'secondary' },
+];
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -45,6 +52,9 @@ function App() {
   const messagesEndRef = useRef(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [selectedAgent, setSelectedAgent] = useState('chat');
+  const [isMicrophoneActive, setIsMicrophoneActive] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
 
   useEffect(() => {
     // Set initial drawer state based on screen size
@@ -110,24 +120,51 @@ function App() {
   };
 
   const handleTranscriptionComplete = (transcription) => {
-    setInput(transcription);
+    // Only set input if user isn't typing (input not focused), current input is empty,
+    // and transcription is not equal to the last bot response
+    const lastAssistantContent = messages.length ? messages[messages.length - 1]?.content : '';
+    const shouldApplyTranscription =
+      Boolean(transcription) &&
+      !isInputFocused &&
+      input.trim() === '' &&
+      transcription !== lastAssistantContent;
+
+    if (shouldApplyTranscription) {
+      setInput(transcription);
+    }
+    setIsMicrophoneActive(false);
+  };
+
+  const handleMicrophoneToggle = (isActive) => {
+    setIsMicrophoneActive(isActive);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-
     const userMessage = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
-
     try {
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/chat`, {
-        message: userMessage
-      });
-      
-      const botResponse = response.data.response;
+      let botResponse = '';
+      if (selectedAgent === 'chat') {
+        const response = await axios.post(`${process.env.REACT_APP_API_URL}/chat`, { message: userMessage });
+        botResponse = response.data.response;
+      } else if (selectedAgent === 'search') {
+        const response = await axios.get(`${process.env.REACT_APP_API_URL}/search`, { params: { q: userMessage } });
+        if (response.data.results && response.data.results.length > 0) {
+          botResponse = response.data.results.map(r => `${r.title}: ${r.href}`).join('\n\n');
+        } else {
+          botResponse = 'No search results found.';
+        }
+      } else if (selectedAgent === 'calculate') {
+        const response = await axios.get(`${process.env.REACT_APP_API_URL}/calculate`, { params: { expr: userMessage } });
+        botResponse = `Result: ${response.data.result}`;
+      } else if (selectedAgent === 'wikipedia') {
+        const response = await axios.get(`${process.env.REACT_APP_API_URL}/wikipedia`, { params: { query: userMessage } });
+        botResponse = `**${response.data.title}**\n${response.data.summary}`;
+      }
       const newMessageIndex = messages.length + 1;
       setMessages(prev => [...prev, { role: 'assistant', content: botResponse }]);
       speak(botResponse, newMessageIndex);
@@ -332,6 +369,22 @@ function App() {
           <div ref={messagesEndRef} />
         </Box>
 
+        {/* Agent Selection Buttons */}
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mb: 2 }}>
+          {AGENTS.map(agent => (
+            <Button
+              key={agent.key}
+              variant={selectedAgent === agent.key ? 'contained' : 'outlined'}
+              color={agent.color}
+              onClick={() => setSelectedAgent(agent.key)}
+              sx={{ fontWeight: 600, borderRadius: 3, minWidth: 120 }}
+              disabled={loading}
+            >
+              {agent.label}
+            </Button>
+          ))}
+        </Box>
+
         {/* Input Area */}
         <Box
           component="form"
@@ -351,13 +404,26 @@ function App() {
           }}
         >
           <Box sx={{ pl: 1, pr: 1, display: 'flex', alignItems: 'center' }}>
-            <AudioRecorder onTranscriptionComplete={handleTranscriptionComplete} />
+            <AudioRecorder 
+              onTranscriptionComplete={handleTranscriptionComplete} 
+              onMicrophoneToggle={handleMicrophoneToggle}
+              isActive={isMicrophoneActive}
+            />
           </Box>
           <TextField
             fullWidth
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message or Use the microphone to speak..."
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
+            placeholder={
+              selectedAgent === 'chat' ? 'Type your message or Use the microphone to speak...'
+              : selectedAgent === 'search' ? 'Enter your search query...'
+             
+              : selectedAgent === 'calculate' ? 'Enter a math expression (e.g. 2*3+sqrt(16))...'
+              : selectedAgent === 'wikipedia' ? 'Enter a topic to look up...'
+              : ''
+            }
             variant="outlined"
             size="medium"
             disabled={loading}

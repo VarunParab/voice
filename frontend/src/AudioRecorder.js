@@ -3,7 +3,7 @@ import MicIcon from '@mui/icons-material/Mic';
 import StopIcon from '@mui/icons-material/Stop';
 import CircularProgress from '@mui/material/CircularProgress';
 
-const AudioRecorder = ({ onTranscriptionComplete }) => {
+const AudioRecorder = ({ onTranscriptionComplete, onMicrophoneToggle, isActive }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef(null);
@@ -26,9 +26,11 @@ const AudioRecorder = ({ onTranscriptionComplete }) => {
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
+      onMicrophoneToggle?.(true);
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('Error accessing microphone. Please ensure you have granted microphone permissions.');
+      onMicrophoneToggle?.(false);
     }
   };
 
@@ -37,6 +39,7 @@ const AudioRecorder = ({ onTranscriptionComplete }) => {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsProcessing(true);
+      onMicrophoneToggle?.(false);
       
       // Stop all audio tracks
       mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
@@ -67,11 +70,23 @@ const AudioRecorder = ({ onTranscriptionComplete }) => {
     }
   };
 
+  // Prevent recording if already active from external state
+  const handleClick = () => {
+    if (isActive && !isRecording) {
+      return; // Don't allow starting if already active from external source
+    }
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
+
   return (
     <div className="audio-recorder">
       <button
-        onClick={isRecording ? stopRecording : startRecording}
-        disabled={isProcessing}
+        onClick={handleClick}
+        disabled={isProcessing || (isActive && !isRecording)}
         className={`record-button ${isRecording ? 'recording' : ''} ${isProcessing ? 'processing' : ''}`}
         aria-label={isRecording ? 'Stop recording' : 'Start recording'}
       >
@@ -83,7 +98,7 @@ const AudioRecorder = ({ onTranscriptionComplete }) => {
           <MicIcon fontSize="medium" />
         )}
       </button>
-      <style jsx>{`
+      <style>{`
         .audio-recorder {
           display: flex;
           align-items: center;
